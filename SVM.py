@@ -9,25 +9,28 @@ import pandas as pd
 import sys
 
 csv1_name = sys.argv[1]
-#csv2_name = sys.argv[2]
+csv2_name = sys.argv[2]
 
-#Read the training data
+#Read the training data for linear separable case
 df = pd.read_csv(csv1_name, header=None)
-trainingData = (df.iloc[:,1:]).values
+trainingData1 = (df.iloc[:,1:]).values
 
-labels = (df.iloc[:,0]).values
-labels[labels == 0] = -1
+labels1 = (df.iloc[:,0]).values
+labels1[labels1 == 0] = -1
 
-#Read the test data
-#df = pd.read_csv(csv2_name, header=None)
-#testData = (df.iloc[:,:]).values
+#Read the training data for non-linear separable case
+df = pd.read_csv(csv2_name, header=None)
+trainingData2 = (df.iloc[:,:]).values
+
+labels2 = (df.iloc[:,0]).values
+labels2[labels2 == 0] = -1
 
 class SVM(object):
     """
     Support Vector Machine Classifier/Regression
 	
     """
-	
+
     def __init__(self, kernel=None, C=None, loss="hinge"):
         self._margin = 0
         #print ("\n *******************Support Vector Machine Initialization*******************")
@@ -40,9 +43,12 @@ class SVM(object):
             
         if kernel is None:
             self._kernel = self.linear_kernel
-        else:
-            self._kernel = kernel
-        print("Kernel selected ->", self._kernel)
+        elif(kernel is 'polynomial_kernel'):
+            self._kernel = self.polynomial_kernel
+        elif(kernel == 'gaussian_kernel'):
+            self._kernel = self.gaussian_kernel
+
+        #print("Kernel selected ->", self._kernel)
 
     #Input the data to this method to train the SVM
     def fit(self, X, y):
@@ -80,9 +86,9 @@ class SVM(object):
             #h is vector of zeros
         else:
             G_std = np.diag(np.ones(n_samples) * -1)
-            h_std = np.identity(n_samples)
+            G_slack = np.identity(n_samples)
 
-            G_slack = np.zeros(n_samples)
+            h_std = np.zeros(n_samples)
             h_slack = np.ones(n_samples) * self._C
 
             G = cvxopt.matrix(np.vstack((G_std, G_slack)))
@@ -116,7 +122,6 @@ class SVM(object):
             self._w = None
         print("\n Weights are : ",self._w)
 
-        #Now we need to find the margin
         #b = yi − wT xi
         ind = np.arange(len(alpha))[sv]
         self._b = y[ind] - np.dot(X[ind], self._w)
@@ -124,15 +129,15 @@ class SVM(object):
     def linear_kernel(self, x1, x2):
         return np.dot(x1, x2)
 
-    def polynomial_kernel(x, y, p=3):
-        return (1 + np.dot(x, y)) ** p
+    def polynomial_kernel(self, x1, x2, p=3):
+        return (1 + np.dot(x1, x2)) ** p
 
     def gaussian_kernel(x, y, sigma=5.0):
         return np.exp(-linalg.norm(x-y)**2 / (2 * (sigma ** 2)))
 
-    def plot_separator(self, X, y):
-        plt.figure()
-
+    def plot_linear_separator(self, X, y):
+        plt.figure(1)
+        #plt.subplot(221)
         for i in range(len(X)):
             if (y[i] == 1):
                 plt.plot(X[i][0], X[i][1], 'ob')
@@ -144,7 +149,7 @@ class SVM(object):
         x = np.arange(0, len(self._Support_Vectors))
         plt.xlabel("x1")
         plt.ylabel("x2")
-        plt.title("SVM with soft margin")
+        plt.title("SVM with linear separable case")
         plt.axis("tight")
 
         #plt.plot(x, (x * slope) + intercept, '--k')
@@ -170,13 +175,9 @@ class SVM(object):
         df2 = (-self._w[0]*hyp_x_max - self._b) / self._w[1]
         plt.plot([hyp_x_min, hyp_x_max],[df1, df2], 'y')
 
-        plt.show()
-
     def plot_linear_margin(self):
-        plt.figure()
-        plt.subplot(221)
-        colors = {1:'r',-1:'b'}
-        marker = 'o'
+        plt.figure(2)
+        #plt.subplot(221)
 
         #we need to make three lines in total
 
@@ -193,12 +194,15 @@ class SVM(object):
         #labels
         plt.xlabel("x1")
         plt.ylabel("x2")
-        plt.title("SVM with soft margin")
+        plt.title("SVM non-linear case")
         plt.axis("tight")
-        plt.show()
         
 #Instantiate the class instance
-svm = SVM()
-svm.fit(trainingData, labels)
-#svm.plot_learning()
-svm.plot_separator(trainingData, labels)
+svmLinear = SVM()
+svmLinear.fit(trainingData1, labels1)
+svmLinear.plot_linear_separator(trainingData1, labels1)
+
+#svmNonLinear = SVM(kernel='polynomial_kernel')
+#svmNonLinear.fit(trainingData2, labels2)
+#svmNonLinear.plot_non_linear_separator(trainingData2, labels2)
+plt.show()
