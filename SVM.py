@@ -6,6 +6,7 @@ from numpy import linalg
 import cvxopt
 import cvxopt.solvers
 import pandas as pd
+import sys
 
 csv1_name = sys.argv[1]
 #csv2_name = sys.argv[2]
@@ -25,45 +26,36 @@ class SVM(object):
     """
     Support Vector Machine Classifier/Regression
 	
-    Params: 
-    w : float
-	weights
-    bias : float
-	bias
-    eta : float
-	Learning Rate (0<=eta<1.0)
-    epochs : int
-	Number of iterations over the training set
-	bias : float
-	    bias value to initialize w0
-	
-	Attributes:
-	w_ : array
-	    Updated weights
-	misclassifications_ : list
-	    Number of misclassifications in every epoch
     """
 	
     def __init__(self, kernel=None, C=None, loss="hinge"):
-        self._kernel = kernel
         self._margin = 0
-        print ("\n *******************Support Vector Machine Initialization*******************")
-        print("Kernel selected ->", kernel)
-        if self._C is not None:
-            self.C = float(self.C)
-            print("\nC ->", C)
+        #print ("\n *******************Support Vector Machine Initialization*******************")
         
+        if C is not None:
+            self._C = float(C)
+            print("\nC ->", C)
+        else:
+            self._C = 10000
+            
+        if kernel is None:
+            self._kernel = self.linear_kernel
+        else:
+            self._kernel = kernel
+        print("Kernel selected ->", self._kernel)
+
     #Input the data to this method to train the SVM
     def fit(self, X, y):
         n_samples, n_features = X.shape
-        print("Number of examples in a sample = %d, Number of features = %d ", n_samples, n_features)
+        #print("\n\nNumber of examples in a sample = ",n_samples , ", Number of features = ", n_features)
         self._w = np.zeros(n_features)
-        
+
         # Initialize the Gram matrix for taking the output from QP solution
         K = np.zeros((n_samples, n_samples))
         for i in range(n_samples):
             for j in range(n_samples):
-                K[i,j] = self.kernel(X[i], X[j])
+                K[i,j] = self._kernel(X[i], X[j])
+                #print("K[", i,",", j, "] = ", K[i,j])
 
         # Here we have to solve the convext optimization problem
         # min 1/2 x^T P x + q^T x
@@ -71,27 +63,32 @@ class SVM(object):
         #  Gx <= h
         #  Ax = b
 
-        
         P = cvxopt.matrix(np.outer(y, y) * K)
-        q = cvxopt.matrix(np.ones(n_samples) * -1)
-        A = cvxopt.matrix(y, (1, n_samples))
+        q = cvxopt.matrix(-np.ones(n_samples))
+        #q is a vector of ones
+        A = cvxopt.matrix(y, (1, n_samples), 'd')
+        #print(A.typecode)
         b = cvxopt.matrix(0.0)
 
         #G & h are required for soft-margin classifier
 
-        if self._C is None:
+        if (self._kernel == self.linear_kernel):
             G = cvxopt.matrix(np.diag(np.ones(n_samples) * -1))
+            #G is an identity matrix with −1s as its diagonal
+            # so that our greater than is transformed into less than
             h = cvxopt.matrix(np.zeros(n_samples))
+            #h is vector of zeros
         else:
             G_std = np.diag(np.ones(n_samples) * -1)
             h_std = np.identity(n_samples)
 
             G_slack = np.zeros(n_samples)
-            h_slack = np.ones(n_samples) * self.C
+            h_slack = np.ones(n_samples) * self._C
 
             G = cvxopt.matrix(np.vstack((G_std, G_slack)))
             h = cvxopt.matrix(np.hstack((h_std, h_slack)))
 
+        cvxopt.solvers.options['show_progress'] = False
         solution = cvxopt.solvers.qp(P, q, G, h, A, b)
 
         # Lagrange multipliers
@@ -99,31 +96,32 @@ class SVM(object):
 
         # Now figure out the Support Vectors i.e yi(xi.w + b) = 1
         # Check whether langrange multiplier has non-zero value
-        sv = alpha > 0
+        sv = alpha > 1e-4
         self._alpha = alpha[sv]
         self._Support_Vectors = X[sv]
         self._Support_Vectors_Labels = y[sv]
+        
+        print ("\n Total number of examples = ", n_samples)
+        print ("\n Total number of Support Vectors found = ", len(self._Support_Vectors))
+        print("\n\n Support Vectors are: \n", self._Support_Vectors)
+        print("\n\n Support Vectors Labels are: \n", self._Support_Vectors_Labels)
 
-        print ("Total number of examples = %d", n_samples)
-        print ("Total number of Support Vectors found = %d", len(self.a))
-
-
-        #Now we need to find the margin
-        ind = np.arange(len(alpha))[sv]
-        for n in range(len(self._alpha)):
-            self._margin += self._Support_Vectors_Labels[n]
-            self._margin -= np.sum(self._alpha * self._Support_Vectors_Labels * K[ind[n], sv])
-        self._margin /= len(self._alpha)
-
-        #Get the weight vectors to form the discriminant function
-        if (self._kernel == linear_kernel):
+        #Now let us define the decision boundary
+        #w = Σαi*yi*xi
+        if (self._kernel == self.linear_kernel):
             for i in range(len(self._alpha)):
+                #print(i, self._alpha[i], self._Support_Vectors_Labels[i], self._Support_Vectors[i])
                 self._w += self._alpha[i] * self._Support_Vectors_Labels[i] * self._Support_Vectors[i]
         else:
             self._w = None
+        print("\n Weights are : ",self._w)
 
-            
-    def linear_kernel(x1, x2):
+        #Now we need to find the margin
+        #b = yi − wT xi
+        ind = np.arange(len(alpha))[sv]
+        self._b = y[ind] - np.dot(X[ind], self._w)
+
+    def linear_kernel(self, x1, x2):
         return np.dot(x1, x2)
 
     def polynomial_kernel(x, y, p=3):
@@ -132,9 +130,52 @@ class SVM(object):
     def gaussian_kernel(x, y, sigma=5.0):
         return np.exp(-linalg.norm(x-y)**2 / (2 * (sigma ** 2)))
 
+    def plot_separator(self, X, y):
+        plt.figure()
+
+        for i in range(len(X)):
+            if (y[i] == 1):
+                plt.plot(X[i][0], X[i][1], 'ob')
+            else:
+                plt.plot(X[i][0], X[i][1], 'xr')
+
+        slope = -self._w[0] / self._w[1]
+        intercept = -self._b / self._w[1]
+        x = np.arange(0, len(self._Support_Vectors))
+        plt.xlabel("x1")
+        plt.ylabel("x2")
+        plt.title("SVM with soft margin")
+        plt.axis("tight")
+
+        #plt.plot(x, (x * slope) + intercept, '--k')
+
+        hyp_x_min = -5
+        hyp_x_max = 20
+
+        # (w.x+b) = 1
+        # positive support vector hyperplane
+        psv1 = (-self._w[0]*hyp_x_min - self._b + 1) / self._w[1]
+        psv2 = (-self._w[0]*hyp_x_max - self._b + 1) / self._w[1]
+        plt.plot([hyp_x_min, hyp_x_max], [psv1, psv2], 'k-.', linewidth=0.2)
+
+        # (w.x+b) = -1
+        # negative support vector hyperplane
+        nsv1 = (-self._w[0]*hyp_x_min - self._b - 1) / self._w[1]
+        nsv2 = (-self._w[0]*hyp_x_max - self._b - 1) / self._w[1]
+        plt.plot([hyp_x_min,hyp_x_max], [nsv1,nsv2], '--k', linewidth=0.2)
+
+        # (w.x+b) = 0
+        # discriminant function
+        df1 = (-self._w[0]*hyp_x_min - self._b) / self._w[1]
+        df2 = (-self._w[0]*hyp_x_max - self._b) / self._w[1]
+        plt.plot([hyp_x_min, hyp_x_max],[df1, df2], 'y')
+
+        plt.show()
+
     def plot_linear_margin(self):
-        plt.figure(1)
+        plt.figure()
         plt.subplot(221)
+        colors = {1:'r',-1:'b'}
         marker = 'o'
 
         #we need to make three lines in total
@@ -150,13 +191,14 @@ class SVM(object):
 
         # w.x + b = -1
         #labels
-        plt.xlabel("x")
-        plt.ylabel("y")
+        plt.xlabel("x1")
+        plt.ylabel("x2")
         plt.title("SVM with soft margin")
         plt.axis("tight")
         plt.show()
         
 #Instantiate the class instance
-svm = SVM(kernel=linear_kernel)
+svm = SVM()
 svm.fit(trainingData, labels)
-svm.plot_learning()
+#svm.plot_learning()
+svm.plot_separator(trainingData, labels)
